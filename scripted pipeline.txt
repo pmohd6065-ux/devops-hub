@@ -1,0 +1,48 @@
+node {
+    def mvnHome = tool 'MVN_HOME'
+
+    stage('Checkout') {
+        git branch: 'master',
+            url: 'https://github.com/pmohd6065-ux/sabear_simplecutomerapp.git'
+    }
+
+    stage('Build') {
+        sh "${mvnHome}/bin/mvn clean package -f pom.xml"
+    }
+
+    stage('SonarQube Analysis') {
+        withSonarQubeEnv('SonarQube') {
+            sh "${mvnHome}/bin/mvn org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar"
+        }
+    }
+
+    stage('Upload to Nexus') {
+        nexusArtifactUploader(
+            artifacts: [[
+                artifactId: 'SimpleCustomerApp',
+                classifier: '',
+                file: "target/SimpleCustomerApp-${env.BUILD_NUMBER}-SNAPSHOT.war",
+                type: 'war'
+            ]],
+            credentialsId: 'nexus-server',
+            groupId: 'com.javatpoint',
+            nexusUrl: '13.51.159.64:8081',
+            nexusVersion: 'nexus3',
+            protocol: 'http',
+            repository: 'feature',
+            version: "${env.BUILD_NUMBER}-SNAPSHOT"
+        )
+    }
+    stage("Tomcat") {
+    deploy adapters: [tomcat9(alternativeDeploymentContext: '', 
+    credentialsId: 'tomcat', 
+    path: '', url: 'http://13.61.6.206:8080')], 
+    contextPath: null, 
+    war: '**/*.war'
+    }
+}
+    stage('slacknotification'){
+        slackSend channel: 'jenkins-integration', 
+        message: 'completed scripted pipeline sucessfully mohdparvez',
+        tokenCredentialId: 'slack'
+    }

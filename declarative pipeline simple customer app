@@ -1,0 +1,88 @@
+pipeline {
+    agent any
+
+    tools {
+        maven "MVN_HOME"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'master',
+                    url: 'https://github.com/pmohd6065-ux/sabear_simplecutomerapp.git'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn clean install -f pom.xml'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh 'mvn sonar:sonar'
+                }
+            }
+        }
+
+        stage('Upload to Nexus') {
+            steps {
+                script {
+                    nexusArtifactUploader(
+                        artifacts: [[
+                            artifactId: 'SimpleCustomerApp',
+                            classifier: '',
+                            file: "target/SimpleCustomerApp-${BUILD_NUMBER}-SNAPSHOT.war",
+                            type: 'war'
+                        ]],
+                        credentialsId: 'nexus',
+                        groupId: 'com.javatpoint',
+                        nexusUrl: '13.49.224.44:8081',
+                        nexusVersion: 'nexus3',
+                        protocol: 'http',
+                        repository: 'feature',
+                        version: "${BUILD_NUMBER}-SNAPSHOT"
+                    )
+                }
+            }
+        }
+
+        stage('Deploy to Tomcat') {
+            steps {
+                script {
+                    deploy adapters: [
+                        tomcat9(
+                            credentialsId: 'tomcat',
+                            path: '',
+                            url: 'http://13.51.233.27:8080/manager/text'
+                        )
+                    ],
+                   }
+            }
+        }
+
+        stage('Slack Notification') {
+            steps {
+                slackSend(
+                    channel: '#jenkins-integration',
+                    message: "✅ Declarative pipeline successfully completed for build #${BUILD_NUMBER}"
+                )
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ Pipeline completed successfully! Artifact uploaded to Nexus and deployed to Tomcat.'
+        }
+        failure {
+            echo '❌ Pipeline failed. Check logs for details.'
+            slackSend(
+                channel: '#jenkins-integration',
+                message: "❌ Pipeline failed for build #${BUILD_NUMBER}. Check Jenkins logs for details."
+            )
+        }
+    }
+}
