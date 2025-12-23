@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+    tools {
+        // Note: this should match with the tool name configured in your jenkins instance (JENKINS_URL/configureTools/)
+        maven "MVN_HOME"
+    }
+    environment {
+        // Nexus configs
+        NEXUS_VERSION = "nexus3"
+        NEXUS_PROTOCOL = "http"
+        NEXUS_URL = "54.146.193.232:8081/"
+        NEXUS_REPOSITORY = "simple-hirirng-app"
+        NEXUS_CREDENTIAL_ID = "nexus_keygen"
+        // Slack configs
+        SLACK_CHANNEL = 'jenkins-integration'
+        SLACK_TEAM_DOMAIN = 'techiehorizon'
+        SLACK_CREDENTIAL_ID = 'slack-integration'
+        SLACK_USERNAME = 'Syed Abdur Razzaq-15'
+    }
+    stages {
+        stage("clone code") {
+            steps {
+                script {
+                    // Let's clone the source
+                    git 'https://github.com/betawins/sabear_simplecutomerapp.git'
+                }
+            }
+        }
+        stage("mvn build") {
+            steps {
+                script {
+                    // If you are using Windows then you should use "bat" step
+                    // Since unit testing is out of the scope we skip them
+                    sh 'mvn -Dmaven.test.failure.ignore=true install'
+                }
+            }
+        }
+        stage("publish to nexus") {
+            steps {
+                script {
+                    // Read POM xml file using 'readMavenPom' step
+                    pom = readMavenPom file: "pom.xml"
+                    filesByGlob = findFiles(glob: "target/*.${pom.packaging}")
+                    echo "${filesByGlob[0].name} ${filesByGlob[0].path} ${filesByGlob[0].directory} ${filesByGlob[0].length} ${filesByGlob[0].lastModified}"
+                    artifactPath = filesByGlob[0].path
+                    artifactExists = fileExists artifactPath
+                    if (artifactExists) {
+                        echo "*** File: ${artifactPath}, group: ${pom.groupId}, packaging: ${pom.packaging}, version ${pom.version}"
+                        nexusArtifactUploader(
+                            nexusVersion: NEXUS_VERSION,
+                            protocol: NEXUS_PROTOCOL,
+                            nexusUrl: NEXUS_URL,
+			    groupId: pom.groupId,
+                            version: pom.version,
+                            repository: NEXUS_REPOSITORY,
+                            credentialsId: NEXUS_CREDENTIAL_ID,
+                            artifacts: [
+                                [artifactId: pom.artifactId, classifier: '', file: artifactPath, type: pom.packaging],
+                                [artifactId: pom.artifactId, classifier: '', file: "pom.xml", type: "pom"]
+                            ]
+                        )
+                    } else {
+                        error "*** File: ${artifactPath}, could not be found"
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            slackSend(
+                botUser: true,
+                channel: env.SLACK_CHANNEL,
+                teamDomain: env.SLACK_TEAM_DOMAIN,
+                tokenCredentialId: env.SLACK_CREDENTIAL_ID,
+                username: env.SLACK_USERNAME,
+                message: "Successfully deployed and completed Declarative pipeline for Job '${env.JOB_NAME} #${env.BUILD_NUMBER}'"
+            )
+        }
+    }
+}
